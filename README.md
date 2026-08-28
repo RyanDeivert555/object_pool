@@ -60,7 +60,7 @@ assert_eq!(handle.len(), 0);
 
 ## Why use this?
 
-Fixed-size pools like this are common in game engines and other real-time or performance-sensitive systems, where you want to reuse a bounded set of objects — buffers, entities, particles — without hitting the heap allocator on every request. That avoids both allocation overhead and fragmentation for objects whose max count you know ahead of time.
+Fixed-size pools like this are common in game engines and other real-time or performance-sensitive systems, where you want to reuse a bounded set of objects (buffers, entities, particles) without hitting the heap allocator on every request. That avoids both allocation overhead and fragmentation for objects whose max count you know ahead of time.
 
 ## Testing
 
