@@ -1,16 +1,17 @@
 use std::cell::{Cell, UnsafeCell};
 
-pub struct ObjectPool<T, const N: usize>
+pub struct ObjectPool<T, const N: usize, F>
 where
     T: Default,
+    F: Fn(&mut T),
 {
     pool: [UnsafeCell<T>; N],
     free_list: [Cell<usize>; N],
     free_count: Cell<usize>,
-    reset: fn(&mut T),
+    reset: F,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Copy, Clone)]
 pub struct NoFreeSlotsError;
 
 impl std::fmt::Display for NoFreeSlotsError {
@@ -22,26 +23,29 @@ impl std::fmt::Display for NoFreeSlotsError {
 impl std::error::Error for NoFreeSlotsError {}
 
 #[must_use]
-pub struct Handle<'pool, T, const N: usize>
+pub struct Handle<'pool, T, const N: usize, F>
 where
     T: Default,
+    F: Fn(&mut T),
 {
     index: usize,
-    pool_ref: &'pool ObjectPool<T, N>,
+    pool_ref: &'pool ObjectPool<T, N, F>,
 }
 
-impl<'pool, T, const N: usize> Handle<'pool, T, N>
+impl<'pool, T, const N: usize, F> Handle<'pool, T, N, F>
 where
     T: Default,
+    F: Fn(&mut T),
 {
-    fn new(index: usize, pool_ref: &'pool ObjectPool<T, N>) -> Self {
+    fn new(index: usize, pool_ref: &'pool ObjectPool<T, N, F>) -> Self {
         Self { index, pool_ref }
     }
 }
 
-impl<'pool, T, const N: usize> std::ops::Deref for Handle<'pool, T, N>
+impl<'pool, T, const N: usize, F> std::ops::Deref for Handle<'pool, T, N, F>
 where
     T: Default,
+    F: Fn(&mut T),
 {
     type Target = T;
 
@@ -53,9 +57,10 @@ where
     }
 }
 
-impl<'pool, T, const N: usize> std::ops::DerefMut for Handle<'pool, T, N>
+impl<'pool, T, const N: usize, F> std::ops::DerefMut for Handle<'pool, T, N, F>
 where
     T: Default,
+    F: Fn(&mut T),
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         let cell_ptr = &self.pool_ref.pool[self.index].get();
@@ -65,9 +70,10 @@ where
     }
 }
 
-impl<'pool, T, const N: usize> Drop for Handle<'pool, T, N>
+impl<'pool, T, const N: usize, F> Drop for Handle<'pool, T, N, F>
 where
     T: Default,
+    F: Fn(&mut T),
 {
     fn drop(&mut self) {
         let cell_ptr = &self.pool_ref.pool[self.index].get();
@@ -78,18 +84,10 @@ where
     }
 }
 
-impl<T, const N: usize> Default for ObjectPool<T, N>
+impl<T, const N: usize, F> ObjectPool<T, N, F>
 where
     T: Default,
-{
-    fn default() -> Self {
-        ObjectPool::new(|x| *x = T::default())
-    }
-}
-
-impl<T, const N: usize> ObjectPool<T, N>
-where
-    T: Default,
+    F: Fn(&mut T),
 {
     /// Creates a object pool. The items within the pool are default-constructed.
     /// The pool uses interior mutability, so the pool itself does not need to be mutable.
@@ -99,9 +97,9 @@ where
     /// ```
     /// use object_pool::*;
     ///
-    /// let pool = ObjectPool::<Vec<i32>, 10>::new(Vec::clear);
+    /// let pool = ObjectPool::<Vec<i32>, 10, _>::new(Vec::clear);
     /// ```
-    pub fn new(reset: fn(&mut T)) -> Self {
+    pub fn new(reset: F) -> Self {
         Self {
             pool: std::array::from_fn(|_| UnsafeCell::new(T::default())),
             free_list: std::array::from_fn(Cell::new),
@@ -110,7 +108,7 @@ where
         }
     }
 
-    fn reserve(&self) -> Handle<'_, T, N> {
+    fn reserve(&self) -> Handle<'_, T, N, F> {
         let index = self.free_list[self.free_count.get() - 1].get();
         self.free_count.update(|n| n - 1);
 
@@ -125,11 +123,11 @@ where
     /// ```
     /// use object_pool::*;
     ///
-    /// let pool: ObjectPool<Vec<i32>, 10> = ObjectPool::new(Vec::clear);
+    /// let pool: ObjectPool<Vec<i32>, 10, _> = ObjectPool::new(Vec::clear);
     /// let handle = pool.take().unwrap();
     /// assert_eq!(*handle, Vec::default());
     /// ```
-    pub fn take(&self) -> Result<Handle<'_, T, N>, NoFreeSlotsError> {
+    pub fn take(&self) -> Result<Handle<'_, T, N, F>, NoFreeSlotsError> {
         if self.free_count.get() > 0 {
             Ok(self.reserve())
         } else {
@@ -150,11 +148,11 @@ where
     /// ```
     /// use object_pool::*;
     ///
-    /// let pool: ObjectPool<Vec<i32>, 10> = ObjectPool::new(Vec::clear);
+    /// let pool: ObjectPool<Vec<i32>, 10, _> = ObjectPool::new(Vec::clear);
     /// let handle = pool.take_with_value(Vec::with_capacity(10)).unwrap();
     /// assert_eq!(handle.capacity(), 10);
     /// ```
-    pub fn take_with_value(&self, value: T) -> Result<Handle<'_, T, N>, NoFreeSlotsError> {
+    pub fn take_with_value(&self, value: T) -> Result<Handle<'_, T, N, F>, NoFreeSlotsError> {
         if self.free_count.get() > 0 {
             let mut handle = self.reserve();
             *handle = value;
@@ -173,11 +171,14 @@ where
     /// ```
     /// use object_pool::*;
     ///
-    /// let pool: ObjectPool<Vec<i32>, 10> = ObjectPool::new(Vec::clear);
+    /// let pool: ObjectPool<Vec<i32>, 10, _> = ObjectPool::new(Vec::clear);
     /// let handle = pool.lazy_take(|| Vec::with_capacity(10)).unwrap();
     /// assert_eq!(handle.capacity(), 10);
     /// ```
-    pub fn lazy_take(&self, f: impl FnOnce() -> T) -> Result<Handle<'_, T, N>, NoFreeSlotsError> {
+    pub fn lazy_take(
+        &self,
+        f: impl FnOnce() -> T,
+    ) -> Result<Handle<'_, T, N, F>, NoFreeSlotsError> {
         if self.free_count.get() > 0 {
             let value = f();
             let mut handle = self.reserve();
@@ -197,11 +198,11 @@ where
     /// ```
     /// use object_pool::*;
     ///
-    /// let pool: ObjectPool<Vec<i32>, 1> = ObjectPool::new(Vec::clear);
+    /// let pool: ObjectPool<Vec<i32>, 1, _> = ObjectPool::new(Vec::clear);
     /// let handle = pool.take().unwrap();
     /// pool.release(handle);
     /// ```
-    pub fn release(&self, handle: Handle<'_, T, N>) {
+    pub fn release(&self, handle: Handle<'_, T, N, F>) {
         assert!(std::ptr::eq(self, handle.pool_ref));
         drop(handle);
     }
@@ -213,7 +214,7 @@ mod tests {
 
     #[test]
     fn handle_creation() {
-        let pool = ObjectPool::<i32, 3>::new(|x| *x = 0);
+        let pool = ObjectPool::<i32, 3, _>::new(|x| *x = 0);
         let a = pool.take_with_value(1).unwrap();
         let b = pool.take_with_value(2).unwrap();
         let c = pool.take_with_value(3).unwrap();
@@ -224,7 +225,7 @@ mod tests {
 
     #[test]
     fn writes_to_slot() {
-        let pool = ObjectPool::<i32, 1>::new(|x| *x = 0);
+        let pool = ObjectPool::<i32, 1, _>::new(|x| *x = 0);
         let mut a = pool.take_with_value(10).unwrap();
         *a = 20;
         assert_eq!(*a, 20);
@@ -232,7 +233,7 @@ mod tests {
 
     #[test]
     fn fail_on_full_capacity() {
-        let pool = ObjectPool::<i32, 2>::new(|x| *x = 0);
+        let pool = ObjectPool::<i32, 2, _>::new(|x| *x = 0);
         let _a = pool.take().unwrap();
         let _b = pool.take().unwrap();
         assert!(pool.take().is_err());
@@ -241,7 +242,7 @@ mod tests {
 
     #[test]
     fn slot_reuse() {
-        let pool = ObjectPool::<i32, 1>::new(|x| *x = 0);
+        let pool = ObjectPool::<i32, 1, _>::new(|x| *x = 0);
         {
             let _a = pool.take_with_value(1).unwrap();
             assert!(pool.take().is_err());
@@ -253,7 +254,7 @@ mod tests {
 
     #[test]
     fn drained_and_refill() {
-        let pool = ObjectPool::<i32, 3>::new(|x| *x = 0);
+        let pool = ObjectPool::<i32, 3, _>::new(|x| *x = 0);
         for round in 0..5 {
             let a = pool.take_with_value(round).unwrap();
             let b = pool.take_with_value(round).unwrap();
@@ -267,7 +268,7 @@ mod tests {
 
     #[test]
     fn reset() {
-        let pool = ObjectPool::<Vec<i32>, 1>::new(Vec::clear);
+        let pool = ObjectPool::<Vec<i32>, 1, _>::new(Vec::clear);
 
         {
             let mut mem = pool.take().unwrap();
@@ -284,7 +285,7 @@ mod tests {
 
     #[test]
     fn manual_release() {
-        let pool = ObjectPool::<Vec<i32>, 1>::new(Vec::clear);
+        let pool = ObjectPool::<Vec<i32>, 1, _>::new(Vec::clear);
 
         let mem = pool.take().unwrap();
         assert!(pool.take().is_err());
@@ -297,11 +298,21 @@ mod tests {
 
     #[test]
     fn lazy_take() {
-        let pool = ObjectPool::<i32, 1>::new(|x| *x = 0);
+        let pool = ObjectPool::<i32, 1, _>::new(|x| *x = 0);
 
         let mem = pool.lazy_take(|| 999).unwrap();
         assert_eq!(*mem, 999);
 
         assert!(pool.lazy_take(|| unreachable!()).is_err());
+    }
+
+    #[test]
+    fn reset_field_is_zst() {
+        let pool: ObjectPool<Vec<()>, 0, _> = ObjectPool::new(Vec::clear);
+
+        assert_eq!(
+            std::mem::size_of_val(&pool),
+            std::mem::size_of::<Cell<usize>>(), // Only field that is not zero-size
+        );
     }
 }

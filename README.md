@@ -4,7 +4,7 @@ A fixed-capacity, allocation-free object pool for Rust, built on const generics 
 
 ## Features
 
-- **Zero heap allocation after creation**: backed by a fixed-size array (`ObjectPool<T, N>`)
+- **Zero heap allocation after creation**: backed by a fixed-size array (`ObjectPool<T, N, F>`)
 - **Interior mutability**: no `&mut` needed to take or release objects from the pool
 - **Automatic release**: objects return to the pool when their handle is dropped (or manually via `release`)
 - **Custom reset logic**: a callback runs on every object as it's returned to the pool
@@ -25,7 +25,7 @@ object_pool = { git = "https://github.com/RyanDeivert555/object_pool" }
 use object_pool::ObjectPool;
 
 // A pool of 10 Vec<i32> buffers, cleared each time they're returned to the pool
-let pool: ObjectPool<Vec<i32>, 10> = ObjectPool::new(Vec::clear);
+let pool: ObjectPool<Vec<i32>, 10, _> = ObjectPool::new(Vec::clear);
 
 let mut handle = pool.take().unwrap();
 handle.push(1);
@@ -41,22 +41,22 @@ assert_eq!(handle.len(), 0);
 ```
 
 ## API
-- `ObjectPool::new(reset: fn(&mut T)) -> Self`
+- `ObjectPool::new(reset: F) -> Self`
   Creates a pool of `N` default-constructed values of `T`. `reset` runs on a value each time it's returned to the pool.
 
-- `take(&self) -> Result<Handle<'_, T, N>, NoFreeSlotsError>`
+- `take(&self) -> Result<Handle<'_, T, N, F>, NoFreeSlotsError>`
   Reserves a default-constructed slot.
 
-- `take_with_value(&self, value: T) -> Result<Handle<'_, T, N>, NoFreeSlotsError>`
+- `take_with_value(&self, value: T) -> Result<Handle<'_, T, N, F>, NoFreeSlotsError>`
   Reserves a slot and assigns it a value immediately.
 
-- `lazy_take(&self, f: impl FnOnce() -> T) -> Result<Handle<'_, T, N>, NoFreeSlotsError>`
+- `lazy_take(&self, f: impl FnOnce() -> T) -> Result<Handle<'_, T, N, F>, NoFreeSlotsError>`
   Like `take_with_value`, but `f` only runs if a slot is actually free. Useful when constructing the value is expensive.
 
-- `release(&self, handle: Handle<'_, T, N>)`
+- `release(&self, handle: Handle<'_, T, N, F>)`
   Explicitly returns a handle to the pool. Functionally the same as dropping it, but asserts the handle belongs to this pool.
 
-`Handle<'pool, T, N>` derefs to `&T` / `&mut T` and automatically returns its slot to the pool (running the `reset` callback) when dropped.
+`Handle<'pool, T, N, F>` derefs to `&T` / `&mut T` and automatically returns its slot to the pool (running the `reset` callback) when dropped.
 
 ## Why use this?
 
