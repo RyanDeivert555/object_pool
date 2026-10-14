@@ -76,7 +76,7 @@ where
     F: Fn(&mut T),
 {
     fn drop(&mut self) {
-        let cell_ptr = &self.pool_ref.pool[self.index].get();
+        let cell_ptr = self.pool_ref.pool[self.index].get();
         // SAFETY: Cells are always unique in the pool and never overlap
         unsafe { (self.pool_ref.reset)(cell_ptr.as_mut_unchecked()) };
         self.pool_ref.free_list[self.pool_ref.free_count.get()].set(self.index);
