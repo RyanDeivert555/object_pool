@@ -24,20 +24,21 @@ object_pool = { git = "https://github.com/RyanDeivert555/object_pool" }
 ```rust
 use object_pool::ObjectPool;
 
-// A pool of 10 Vec<i32> buffers, cleared each time they're returned to the pool
-let pool: ObjectPool<Vec<i32>, 10, _> = ObjectPool::new(Vec::clear);
+// One item, to demonstrate that objects are being reused
+let pool: ObjectPool<Vec<i32>, 1, _> = ObjectPool::new(Vec::clear);
 
-let mut handle = pool.take().unwrap();
-handle.push(1);
-handle.push(2);
-assert_eq!(handle.len(), 2);
-
-// Dropping the handle resets it (via Vec::clear) and returns the slot to the pool
-// Or use `pool.release(handle);`
-drop(handle);
+{
+    // Handle will be dropped at the end of the scope, clearing the `Vec`
+    let mut handle = pool.take().unwrap();
+    handle.push(1);
+    handle.push(2);
+    assert_eq!(handle.len(), 2);
+    assert!(handle.capacity() > 0);
+}
 
 let handle = pool.take().unwrap();
 assert_eq!(handle.len(), 0);
+assert!(handle.capacity() > 0);
 ```
 
 ## API
