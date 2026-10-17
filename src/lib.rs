@@ -50,7 +50,7 @@ where
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        let cell_ptr = &self.pool_ref.pool[self.index].get();
+        let cell_ptr = self.pool_ref.pool[self.index].get();
 
         // SAFETY: Cells are always unique in the pool and never overlap
         unsafe { cell_ptr.as_ref_unchecked() }
@@ -63,7 +63,7 @@ where
     F: Fn(&mut T),
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        let cell_ptr = &self.pool_ref.pool[self.index].get();
+        let cell_ptr = self.pool_ref.pool[self.index].get();
 
         // SAFETY: Cells are always unique in the pool and never overlap
         unsafe { cell_ptr.as_mut_unchecked() }
