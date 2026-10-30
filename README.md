@@ -65,7 +65,7 @@ Fixed-size pools like this are common in game engines and other real-time or per
 
 ## Testing
 
-```
+```sh
 cargo test
 cargo miri test
 ```
